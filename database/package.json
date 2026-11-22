@@ -1,0 +1,15 @@
+{
+  "name": "ledgerguard-mongodb-db",
+  "version": "1.3.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "seed": "node scripts/seed.js",
+    "test": "node --test",
+    "test:integration": "node --test tests/integration.test.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "mongoose": "^8.9.5"
+  }
+}
