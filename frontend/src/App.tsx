@@ -91,6 +91,29 @@ const demoTenant = {
      plan: 'Enterprise Plan',
 
 }
+type DemoProfile = {
+  name: string
+  email: string
+  organization: string
+}
+
+function getDemoProfile(): DemoProfile {
+  try {
+    const saved = sessionStorage.getItem('ledgerguard-demo-user')
+
+    if (saved) {
+      return JSON.parse(saved) as DemoProfile
+    }
+  } catch {
+    // Fall back to the default demo profile.
+  }
+
+  return {
+    name: 'Abhishek Singh',
+    email: 'admin@acmetech.example',
+    organization: demoTenant.name,
+  }
+}
 
 const data: Transaction[] = [
 
@@ -336,174 +359,167 @@ placeholder="Enter your password"
 
 }
 
+
+
 function Signup() {
-
-     const go = useNavigate()
-
-     const [name, setName] = useState('')
-
-     const [organization, setOrganization] = useState('')
-
-     const [email, setEmail] = useState('')
-
-     const [password, setPassword] = useState('')
-
-     const [error, setError] = useState('')
-
-     function submit(e: FormEvent<HTMLFormElement>) {
-
-       e.preventDefault()
-
-       setError('')
-
-       if (!name.trim() || !organization.trim() || !email.trim() || !password) {
-
-         setError('Please complete all fields.')
-
-         return
-
-       }
-
-       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-
-         setError('Enter a valid email address.')
-
-         return
-
-       }
-
-       if (password.length < 8) {
-
-         setError('Password must contain at least 8 characters.')
-
-         return
-
-       }
-
-// Demo only: no real account or organization is created.
-
-       sessionStorage.setItem('ledgerguard-demo-session', 'true')
-
-       go('/')
-
-     }
-
-     return (
-
-       <div className="login-page">
-
-         <div className="brand">
-
-           <b className="brand-mark">L</b>ledger<span>guard</span>
-
-         </div>
-
-         <form className="login-card signup-card" onSubmit={submit}>
-
-           <div className="login-icon">＋</div>
-
-           <div className="kicker">GET STARTED</div>
-
-           <h2>Create your workspace</h2>
-
-           <p className="muted">Enter your details to get started with LedgerGuard.</p>
-
-           <label htmlFor="full-name">Full name</label>
-
-           <input
-
-id="full-name"
-
-value={name}
-
-onChange={(e) => setName(e.target.value)}
-
-placeholder="Your name"
-
-           />
-
-           <label htmlFor="company">Organization name</label>
-
-           <input
-
-id="company"
-
-value={organization}
-
-onChange={(e) => setOrganization(e.target.value)}
-
-placeholder="Company name"
-
-           />
-
-           <label htmlFor="signup-email">Work email</label>
-
-           <input
-
-id="signup-email"
-
-type="email"
-
-value={email}
-
-onChange={(e) => setEmail(e.target.value)}
-
-placeholder="you@company.com"
-
-           />
-
-           <label htmlFor="signup-password">Password</label>
-
-           <input
-
-id="signup-password"
-
-type="password"
-
-value={password}
-
-onChange={(e) => setPassword(e.target.value)}
-
-placeholder="At least 8 characters"
-
-           />
-
-           {error && <div className="error" role="alert">{error}</div>}
-
-           <button className="primary full" type="submit">
-
-             Create account <span>→</span>
-
-           </button>
-
-           <div className="signup-link">
-
-             Already have an account? <Link to="/login">Sign in</Link>
-
-           </div>
-
-           <div className="demo-note">
-
-             Demo registration only. No real account is created until backend integration.
-
-           </div>
-
-         </form>
-
-       </div>
-
-     )
-
+  const go = useNavigate()
+
+  const [name, setName] = useState('')
+  const [organization, setOrganization] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [show, setShow] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  function submit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+
+    if (loading) return
+
+    setError('')
+
+    const normalizedEmail = email.trim().toLowerCase()
+    const normalizedName = name.trim()
+    const normalizedOrganization = organization.trim()
+
+    if (
+      !normalizedName ||
+      !normalizedOrganization ||
+      !normalizedEmail ||
+      !password
+    ) {
+      setError('Please complete all fields.')
+      return
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      setError('Enter a valid email address.')
+      return
+    }
+
+    if (password.length < 8) {
+      setError('Password must contain at least 8 characters.')
+      return
+    }
+
+    setLoading(true)
+
+    // Demo only: no real account or organization is created.
+    window.setTimeout(() => {
+      sessionStorage.setItem(
+        'ledgerguard-demo-user',
+        JSON.stringify({
+          name: normalizedName,
+          email: normalizedEmail,
+          organization: normalizedOrganization,
+        })
+      )
+
+      sessionStorage.setItem('ledgerguard-demo-session', 'true')
+
+      setLoading(false)
+      go('/')
+    }, 500)
+  }
+
+  return (
+    <div className="login-page">
+      <div className="brand">
+        <b className="brand-mark">L</b>ledger<span>guard</span>
+      </div>
+
+      <form className="login-card signup-card" onSubmit={submit}>
+        <div className="login-icon">＋</div>
+        <div className="kicker">GET STARTED</div>
+        <h2>Create your workspace</h2>
+        <p className="muted">
+          Enter your details to get started with LedgerGuard.
+        </p>
+
+        <label htmlFor="full-name">Full name</label>
+        <input
+          id="full-name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Your name"
+          autoComplete="name"
+          required
+        />
+
+        <label htmlFor="company">Organization name</label>
+        <input
+          id="company"
+          value={organization}
+          onChange={(e) => setOrganization(e.target.value)}
+          placeholder="Company name"
+          autoComplete="organization"
+          required
+        />
+
+        <label htmlFor="signup-email">Work email</label>
+        <input
+          id="signup-email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@company.com"
+          autoComplete="email"
+          required
+        />
+
+        <label htmlFor="signup-password">Password</label>
+        <div className="password-row">
+          <input
+            id="signup-password"
+            type={show ? 'text' : 'password'}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="At least 8 characters"
+            autoComplete="new-password"
+            minLength={8}
+            required
+          />
+
+          <button type="button" onClick={() => setShow(!show)}>
+            {show ? 'Hide' : 'Show'}
+          </button>
+        </div>
+
+        {error && <div className="error" role="alert">{error}</div>}
+
+        <button
+          className="primary full"
+          type="submit"
+          disabled={loading}
+        >
+          {loading ? 'Creating workspace...' : 'Create account'}
+          <span>→</span>
+        </button>
+
+        <div className="signup-link">
+          Already have an account? <Link to="/login">Sign in</Link>
+        </div>
+
+        <div className="demo-note">
+          Demo registration only. No real account is created until backend integration.
+        </div>
+      </form>
+    </div>
+  )
 }
 
+
+
 function Shell() {
+  const profile = getDemoProfile()
 
      const go = useNavigate()
 
      function logout() {
 
        sessionStorage.removeItem('ledgerguard-demo-session')
-
+         sessionStorage.removeItem('ledgerguard-demo-user')
        go('/login')
 
      }
@@ -572,11 +588,18 @@ function Shell() {
 
              <div className="profile">
 
-               <b>AS</b>
+               <b>
+                 {profile.name
+                  .split(' ')
+                  .map((part) => part[0])
+                  .join('')
+                  .toUpperCase()
+                   .slice(0, 2)}
+                </b>
 
                <span>
 
-                 <strong>Abhishek Singh</strong>
+               <strong>{profile.name}</strong>  
 
                  <small>Workspace admin</small>
 
@@ -1165,6 +1188,7 @@ onChange={(e) => { setStatus(e.target.value); setPage(1) }}
 }
 
 function Dashboard() {
+  const profile = getDemoProfile()
 
      const hour = new Date().getHours()
 
@@ -1200,9 +1224,10 @@ function Dashboard() {
 
 eyebrow={today.toUpperCase()}
 
-title={`${greeting}, Abhishek ✦`}
 
-subtitle={`Here's what's happening with ${demoTenant.name} today.`}
+title={`${greeting}, ${profile.name} ✦`}
+
+subtitle={`Here's what's happening with ${profile.organization} today.`}
 
 action="Export report"
 
