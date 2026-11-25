@@ -426,3 +426,78 @@ This section provides the frontend team with complete API contracts, authenticat
 - **Database Layer Reuse:** `backend/src/config/db.js` integrates directly with `database/src/` (`connections.js`, `models.js`, `idempotency.js`), preserving database models without schema duplication.
 - **Teammate Protection:** Teammate contributions in `frontend/`, `database/`, and `docs/daily-progress/` remain completely untouched and intact.
 - **Git Author Attribution:** Local author verified as `Maithli <tomarmaithlisingh@gmail.com>` without modifying global configuration.
+
+---
+
+## 9. End-to-End Database Integration Testing & Atlas Readiness (25 November 2026)
+
+### 9.1 Verification of Database Layer & Adapter Bridge
+The backend imports the database tier via `backend/src/config/db.js`, connecting directly to `database/src/` (`connections.js`, `models.js`, `idempotency.js`):
+- **Central Connection Pool:** `getPlatformConnection` manages connectivity to `platform_db`.
+- **Tenant Connection Cache:** `getTenantConnection(verifiedOrganizationId)` resolves `Organization` from `platform_db` and provisions cached connection promises per tenant database.
+- **Mongoose Models:** `Organization` (platform-level), `getUserModel`, `getBillingTransactionModel`, `getLedgerEntryModel`, `getUsageRecordModel`, and `getPricingPlanModel` (tenant-scoped).
+- **Idempotency Guard:** `assertMatchingRequestHash` validates payload consistency on reused keys.
+
+### 9.2 MongoDB Atlas Configuration Inspection
+- **Probe Function:** `checkDatabaseHealth()` in `backend/src/config/db.js` probes the database tier.
+- **Safety Status:** When `MONGODB_URI` contains placeholder values (`<username>:<password>@<cluster-url>`), the system reports `{ status: "unconfigured", platformDb: "platform_db", message: "MONGODB_URI is not configured with live credentials." }` without crashing the application.
+- **Credential Hygiene:** Zero credentials are hardcoded or committed to Git. Live credentials must be supplied via untracked local `.env` files.
+
+### 9.3 Central Platform Database & Tenant Routing Verification
+- **Registry Mapping:** `platform_db.organizations` routes tenant contexts:
+  - `org_acme_001` ➔ `tenant_acme_db`
+  - `org_zenith_002` ➔ `tenant_zenith_db`
+- **Routing Middleware:** `backend/src/middleware/tenant.middleware.js` extracts and validates the tenant context from JWT claims, route parameters, `x-tenant-id`, or `x-organization-id`.
+
+### 9.4 Authentication, RBAC, and Tenant Access Verification
+- **RS256 JWT Lifecycle:** Verifies token generation, asymmetric cryptographic signature verification, expiration, and role boundaries (`platform_admin` ➔ `admin` ➔ `manager` ➔ `member`).
+- **Live User Guard:** `tenant.middleware.js` queries `getUserModel(tenantDb)` to verify the user is active in the database, rejecting stale or revoked tokens.
+- **Cross-Tenant Protection:** Attempting to query another tenant's database with an authenticated token targeting a mismatched tenant header is immediately blocked with HTTP 403 `TENANT_ACCESS_DENIED`.
+
+### 9.5 Financial Workflows, Idempotency, and Accounting Invariants
+- **Double-Entry Ledger Balancing:** Invariant holds strictly: $\sum \text{Debits} == \sum \text{Credits}$.
+- **Idempotency Contract:** Request hashes are generated using deterministic canonical JSON key sorting. Replays return the cached response; modifications on the same key trigger HTTP 409 `IDEMPOTENCY_KEY_PAYLOAD_MISMATCH`.
+- **Compensating Reversals:** Transactions with status `success` generate compensating journal entries swapping debits and credits (`REV-JRN-...`), preserving original entries as immutable accounting records.
+- **Scaled Integer Usage:** Floating-point arithmetic is avoided. Quantities are stored as rational fractions (`quantityScaled / quantityScale`) and rounded half-up: $275/100 \times 10 = 28$ minor currency units for Zenith.
+
+### 9.6 Test Execution Summary
+
+```text
+=== BACKEND TEST SUITE (backend/) ===
+Command: node --test tests/**/*.test.js
+✔ Passed: 54 tests
+✖ Failed: 0 tests
+﹣ Skipped: 1 test (Live Atlas network test skipped safely when MONGODB_URI is unconfigured)
+⏱ Duration: ~1,084 ms
+
+=== DATABASE TEST SUITE (database/) ===
+Command: node --test
+✔ Passed: 1 test (idempotency rejects reuse with different request hash)
+✖ Failed: 0 tests
+﹣ Skipped: 5 tests (Live Atlas multi-document transaction & isolation tests skipped pending cluster URI)
+⏱ Duration: ~90 ms
+```
+
+### 9.7 Teammate Integration Guide
+
+#### For the Database Teammate:
+1. To run live Atlas integration tests against your isolated development cluster:
+   ```bash
+   cd database
+   export MONGODB_URI="mongodb+srv://<user>:<password>@<cluster-url>/?retryWrites=true&w=majority"
+   export LEDGERGUARD_TEST_PLATFORM_DB_NAME="ledgerguard_test_platform"
+   npm run test:integration
+   ```
+2. To test full backend E2E flows against the same cluster:
+   ```bash
+   cd ../backend
+   export MONGODB_URI="mongodb+srv://<user>:<password>@<cluster-url>/?retryWrites=true&w=majority"
+   npm test
+   ```
+
+#### For the Frontend Teammate:
+1. The backend server runs at `http://localhost:4000/api/v1`.
+2. Include both headers on all protected API requests:
+   - `Authorization: Bearer <RS256_JWT_TOKEN>`
+   - `x-tenant-id: <organizationId>` (e.g. `org_acme_001` or `org_zenith_002`)
+3. Login via `POST /api/v1/auth/login` with `{ organizationId, email, password }` returns the token and user profile.

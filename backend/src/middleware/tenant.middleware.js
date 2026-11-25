@@ -25,7 +25,8 @@ export async function resolveTenant(req, res, next) {
   const explicitOrgId =
     req.params.organizationId ||
     req.body?.organizationId ||
-    req.headers["x-organization-id"];
+    req.headers["x-organization-id"] ||
+    req.headers["x-tenant-id"];
 
   // Prevent cross-tenant tampering: if a client explicitly targets another tenant while authenticated
   if (explicitOrgId && req.user?.organizationId && explicitOrgId.trim() !== req.user.organizationId) {
