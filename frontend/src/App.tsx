@@ -17,10 +17,10 @@ import {
      Filler,
 
 } from 'chart.js'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 
 import { Line } from 'react-chartjs-2'
 
-import { useMemo, useState, type FormEvent } from 'react'
 
 import {
 
@@ -60,28 +60,6 @@ ChartJS.register(
 
 )
 
-type Status = 'Successful' | 'Pending' | 'Failed'
-
-type Transaction = {
-
-     id: string
-
-     eventId: string
-
-     tenantId: string
-
-     customer: string
-
-     description: string
-
-     amount: number
-
-     status: Status
-
-     date: string
-
-}
-
 const demoTenant = {
 
      id: 'org_acme_001',
@@ -99,41 +77,26 @@ type DemoProfile = {
 
 function getDemoProfile(): DemoProfile {
   try {
-    const saved = sessionStorage.getItem('ledgerguard-demo-user')
-
+    const saved = sessionStorage.getItem('ledgerguard-auth-user')
     if (saved) {
-      return JSON.parse(saved) as DemoProfile
+      const user = JSON.parse(saved)
+      return {
+        name: user.name || user.fullName || user.email || 'Workspace user',
+        email: user.email || '',
+        organization: user.organizationId || 'Workspace',
+      }
     }
   } catch {
-    // Fall back to the default demo profile.
+    // Invalid saved profile; use the fallback.
   }
 
   return {
-    name: 'Abhishek Singh',
-    email: 'admin@acmetech.example',
-    organization: demoTenant.name,
+    name: 'Workspace user',
+    email: '',
+    organization: 'Workspace',
   }
 }
 
-const data: Transaction[] = [
-
-     { id: 'TXN-10482', eventId: 'evt_01HX8A1', tenantId: demoTenant.id, customer: 'Rahul Sharma', description: 'Monthly subscription', amount: 24999, status: 'Successful', date: '19 Nov 2026' },
-
-     { id: 'TXN-10481', eventId: 'evt_01HX8A2', tenantId: demoTenant.id, customer: 'Priya Mehta', description: 'API usage charges', amount: 8450, status: 'Pending', date: '19 Nov 2026' },
-
-     { id: 'TXN-10480', eventId: 'evt_01HX8A3', tenantId: demoTenant.id, customer: 'Northstar Labs', description: 'Annual subscription', amount: 59999, status: 'Successful', date: '18 Nov 2026' },
-
-     { id: 'TXN-10479', eventId: 'evt_01HX8A4', tenantId: demoTenant.id, customer: 'Aarav Enterprises', description: 'Additional seats', amount: 4200, status: 'Failed', date: '18 Nov 2026' },
-
-     { id: 'TXN-10478', eventId: 'evt_01HX8A5', tenantId: demoTenant.id, customer: 'Mira Solutions', description: 'Monthly subscription', amount: 12999, status: 'Successful', date: '18 Nov 2026' },
-
-     { id: 'TXN-10477', eventId: 'evt_01HX8A6', tenantId: demoTenant.id, customer: 'Kite Systems', description: 'Compute usage', amount: 6750, status: 'Successful', date: '17 Nov 2026' },
-
-     { id: 'TXN-10476', eventId: 'evt_01HX8A7', tenantId: demoTenant.id, customer: 'Bluebird Retail', description: 'API usage charges', amount: 3150, status: 'Pending', date: '17 Nov 2026' },
-
-     { id: 'TXN-10475', eventId: 'evt_01HX8A8', tenantId: demoTenant.id, customer: 'Orbit Digital', description: 'Monthly subscription', amount: 18999, status: 'Failed', date: '16 Nov 2026' },
-
-]
 
 const nav = [
 
@@ -153,9 +116,9 @@ function Login() {
 
      const go = useNavigate()
 
-     const [org, setOrg] = useState(demoTenant.id)
+     const [org, setOrg] = useState('org_abhishek_test')
 
-     const [email, setEmail] = useState('admin@acmetech.example')
+     const [email, setEmail] = useState('admin@test.ledgerguard.local')
 
      const [password, setPassword] = useState('')
 
@@ -166,37 +129,59 @@ function Login() {
      const [error, setError] = useState('')
 
      async function submit(e: FormEvent<HTMLFormElement>) {
-
-e.preventDefault()
-
+       e.preventDefault()
        setError('')
 
-       if (!org.trim() || !email.trim() || !password) {
+       const organizationId = org.trim()
+       const normalizedEmail = email.trim().toLowerCase()
 
+       if (!organizationId || !normalizedEmail || !password) {
          setError('Please complete all fields.')
-
          return
-
        }
 
-       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-
+       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
          setError('Enter a valid email address.')
-
          return
-
        }
 
        setLoading(true)
 
-       await new Promise((resolve) => window.setTimeout(resolve, 500))
+       try {
+         const response = await fetch('/api/v1/auth/login', {
+           method: 'POST',
+           headers: {
+             'Content-Type': 'application/json',
+             'x-tenant-id': organizationId,
+           },
+           body: JSON.stringify({
+             email: normalizedEmail,
+             password,
+           }),
+         })
 
-       sessionStorage.setItem('ledgerguard-demo-session', 'true')
+         const payload = await response.json().catch(() => ({}))
+         const result = payload.data ?? payload
 
-       setLoading(false)
+         if (!response.ok || payload.success === false) {
+           throw new Error(payload.message || 'Login failed. Check your details.')
+         }
 
-       go('/')
+         const token = result.token || payload.token
+         const user = result.user || payload.user
 
+         if (!token || !user) {
+           throw new Error('The server response did not contain a login session.')
+         }
+
+         sessionStorage.setItem('ledgerguard-auth-token', token)
+         sessionStorage.setItem('ledgerguard-auth-user', JSON.stringify(user))
+         go('/')
+       } catch (err) {
+         setError(err instanceof Error ? err.message : 'Unable to connect to the server.')
+       } finally {
+         setLoading(false)
+       }
      }
 
      return (
@@ -333,7 +318,7 @@ placeholder="Enter your password"
 
              <div className="demo-note">
 
-               ⓘ Demo only: enter any non-empty password. This does not authenticate against a server.
+               Your credentials will be verified securely by the LedgerGuard backend.
 
              </div>
 
@@ -362,153 +347,26 @@ placeholder="Enter your password"
 
 
 function Signup() {
-  const go = useNavigate()
-
-  const [name, setName] = useState('')
-  const [organization, setOrganization] = useState('')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [show, setShow] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-
-  function submit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-
-    if (loading) return
-
-    setError('')
-
-    const normalizedEmail = email.trim().toLowerCase()
-    const normalizedName = name.trim()
-    const normalizedOrganization = organization.trim()
-
-    if (
-      !normalizedName ||
-      !normalizedOrganization ||
-      !normalizedEmail ||
-      !password
-    ) {
-      setError('Please complete all fields.')
-      return
-    }
-
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      setError('Enter a valid email address.')
-      return
-    }
-
-    if (password.length < 8) {
-      setError('Password must contain at least 8 characters.')
-      return
-    }
-
-    setLoading(true)
-
-    // Demo only: no real account or organization is created.
-    window.setTimeout(() => {
-      sessionStorage.setItem(
-        'ledgerguard-demo-user',
-        JSON.stringify({
-          name: normalizedName,
-          email: normalizedEmail,
-          organization: normalizedOrganization,
-        })
-      )
-
-      sessionStorage.setItem('ledgerguard-demo-session', 'true')
-
-      setLoading(false)
-      go('/')
-    }, 500)
-  }
-
   return (
     <div className="login-page">
       <div className="brand">
         <b className="brand-mark">L</b>ledger<span>guard</span>
       </div>
-
-      <form className="login-card signup-card" onSubmit={submit}>
+      <div className="login-card">
         <div className="login-icon">＋</div>
-        <div className="kicker">GET STARTED</div>
-        <h2>Create your workspace</h2>
+        <div className="kicker">WORKSPACE ACCESS</div>
+        <h2>Account creation is managed by your administrator</h2>
         <p className="muted">
-          Enter your details to get started with LedgerGuard.
+          Public registration is disabled. Ask your workspace administrator
+          to create an account for you, then sign in with your organization ID.
         </p>
-
-        <label htmlFor="full-name">Full name</label>
-        <input
-          id="full-name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Your name"
-          autoComplete="name"
-          required
-        />
-
-        <label htmlFor="company">Organization name</label>
-        <input
-          id="company"
-          value={organization}
-          onChange={(e) => setOrganization(e.target.value)}
-          placeholder="Company name"
-          autoComplete="organization"
-          required
-        />
-
-        <label htmlFor="signup-email">Work email</label>
-        <input
-          id="signup-email"
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="you@company.com"
-          autoComplete="email"
-          required
-        />
-
-        <label htmlFor="signup-password">Password</label>
-        <div className="password-row">
-          <input
-            id="signup-password"
-            type={show ? 'text' : 'password'}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="At least 8 characters"
-            autoComplete="new-password"
-            minLength={8}
-            required
-          />
-
-          <button type="button" onClick={() => setShow(!show)}>
-            {show ? 'Hide' : 'Show'}
-          </button>
-        </div>
-
-        {error && <div className="error" role="alert">{error}</div>}
-
-        <button
-          className="primary full"
-          type="submit"
-          disabled={loading}
-        >
-          {loading ? 'Creating workspace...' : 'Create account'}
-          <span>→</span>
-        </button>
-
         <div className="signup-link">
-          Already have an account? <Link to="/login">Sign in</Link>
+          <Link to="/login">Return to sign in</Link>
         </div>
-
-        <div className="demo-note">
-          Demo registration only. No real account is created until backend integration.
-        </div>
-      </form>
+      </div>
     </div>
   )
 }
-
 
 
 function Shell() {
@@ -518,8 +376,8 @@ function Shell() {
 
      function logout() {
 
-       sessionStorage.removeItem('ledgerguard-demo-session')
-         sessionStorage.removeItem('ledgerguard-demo-user')
+       sessionStorage.removeItem('ledgerguard-auth-token')
+       sessionStorage.removeItem('ledgerguard-auth-user')
        go('/login')
 
      }
@@ -546,9 +404,9 @@ function Shell() {
 
              <span>
 
-               <strong>{demoTenant.name}</strong>
+               <strong>{profile.organization}</strong>
 
-               <small>{demoTenant.plan}</small>
+               <small>Workspace</small>
 
              </span>
 
@@ -621,7 +479,7 @@ function Shell() {
 
              <div>
 
-               <label className="demo-pill">● Demo environment</label>
+               <label className="demo-pill">● Authenticated session</label>
 
                <span className="avatar">AS</span>
 
@@ -706,105 +564,124 @@ onClick={() => window.alert('Export will be connected to the backend later.')}
 }
 
 function Stat({
-
-label,
-
-value,
-
-change,
-
-icon,
-
+  label,
+  value,
+  change,
+  icon,
+  comparison = 'vs last month',
 }: {
-
-     label: string
-
-     value: string
-
-     change: string
-
-     icon: string
-
+  label: string
+  value: string
+  change: string
+  icon: string
+  comparison?: string
 }) {
+  return (
+    <article className="stat">
+      <div className="stat-top"><span>{label}</span><b>{icon}</b></div>
+      <strong>{value}</strong>
+      <small>
+        <em>{comparison === 'vs last month' ? '↗ ' : ''}{change}</em>
+        {comparison ? ` ${comparison}` : ''}
+      </small>
+    </article>
+  )
+}
 
-     return (
 
-       <article className="stat">
-
-         <div className="stat-top"><span>{label}</span><b>{icon}</b></div>
-
-         <strong>{value}</strong>
-
-         <small><em>↗ {change}</em> vs last month</small>
-
-       </article>
-
-     )
-
+type MonthlyRevenue = {
+  month: string
+  monthKey: string
+  revenueMinor: number
 }
 
 function Revenue() {
+  const [months, setMonths] = useState<MonthlyRevenue[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
-     const points = [
+  useEffect(() => {
+    let cancelled = false
 
-       ['Jun', 42],
+    async function loadRevenue() {
+      try {
+        const { apiRequest } = await import('./services/api')
+        const result = await apiRequest<{
+          months: MonthlyRevenue[]
+        }>('/analytics/revenue/monthly')
 
-       ['Jul', 58],
+        if (!cancelled) {
+          setMonths(result.months)
+          setError('')
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : 'Unable to load monthly revenue.'
+          )
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
 
-       ['Aug', 49],
+    loadRevenue()
 
-       ['Sep', 72],
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
-       ['Oct', 64],
+  const maxRevenue = Math.max(
+    1,
+    ...months.map((item) => item.revenueMinor)
+  )
 
-       ['Nov', 86],
+  const formatRevenue = (amountMinor: number) =>
+    new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      maximumFractionDigits: 0,
+    }).format(amountMinor / 100)
 
-     ] as const
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <div>
+          <h3>Revenue overview</h3>
+          <p>Actual monthly revenue · last 6 months</p>
+        </div>
+        <span className="legend">● Revenue</span>
+      </div>
 
-     return (
-
-       <section className="panel">
-
-         <div className="panel-head">
-
-           <div>
-
-             <h3>Revenue overview</h3>
-
-             <p>Monthly billing volume · last 6 months</p>
-
-           </div>
-
-           <span className="legend">● Revenue</span>
-
-         </div>
-
-         <div className="bars">
-
-           {points.map(([month, value]) => (
-
-             <div className="bar-col" key={month}>
-
-               <small>₹{value}k</small>
-
-               <div className="bar-track">
-
-                 <i style={{ height: `${(value / 86) * 100}%` }} />
-
-               </div>
-
-               <label>{month}</label>
-
-             </div>
-
-           ))}
-
-         </div>
-
-       </section>
-
-     )
-
+      {loading ? (
+        <p className="empty">Loading monthly revenue...</p>
+      ) : error ? (
+        <p className="empty">{error}</p>
+      ) : (
+        <div className="bars">
+          {months.map((item) => (
+            <div className="bar-col" key={item.monthKey}>
+              <small>{formatRevenue(item.revenueMinor)}</small>
+              <div className="bar-track">
+                <i
+                  style={{
+                    height: `${Math.max(
+                      item.revenueMinor > 0 ? 8 : 0,
+                      (item.revenueMinor / maxRevenue) * 100
+                    )}%`,
+                  }}
+                />
+              </div>
+              <label>{item.month}</label>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
 }
 
 function AnalyticsRevenue() {
@@ -1027,240 +904,354 @@ function Usage() {
 
 }
 
+interface BillingTransaction {
+  transactionId: string
+  description?: string
+  amountMinor: number
+  currency: string
+  status: 'pending' | 'success' | 'failed' | 'reversed'
+  createdAt: string
+}
+
 function Transactions({ compact = false }: { compact?: boolean }) {
-
-     const [query, setQuery] = useState('')
-
-     const [status, setStatus] = useState('All statuses')
-
-     const [page, setPage] = useState(1)
-
-     const filtered = useMemo(
-
-       () =>
-
-         data.filter(
-
-           (t) =>
-
-             `${t.id} ${t.customer} ${t.description}`.toLowerCase().includes(query.toLowerCase()) &&
-
-             (status === 'All statuses' || t.status === status),
-
-         ),
-
-       [query, status],
-
-     )
-
-     const size = compact ? 5 : 6
-
-     const pages = Math.max(1, Math.ceil(filtered.length / size))
-
-     const rows = compact ? filtered.slice(0, size) : filtered.slice((page - 1) * size, page * size)
-
-     return (
-
-       <section className="panel table-panel">
-
-         <div className="panel-head">
-
-           <div>
-
-             <h3>{compact ? 'Recent transactions' : 'All transactions'}</h3>
-
-             <p>{compact ? 'Your latest billing activity' : 'Review and manage your billing events'}</p>
-
-           </div>
-
-           {!compact && <small>{filtered.length} results</small>}
-
-         </div>
-
-         {!compact && (
-
-           <div className="table-tools">
-
-             <input
-
-placeholder="⌕  Search by ID, customer..."
-
-value={query}
-
-onChange={(e) => { setQuery(e.target.value); setPage(1) }}
-
-             />
-
-             <select
-
-value={status}
-
-onChange={(e) => { setStatus(e.target.value); setPage(1) }}
-
-             >
-
-               <option>All statuses</option>
-
-               <option>Successful</option>
-
-               <option>Pending</option>
-
-               <option>Failed</option>
-
-             </select>
-
-           </div>
-
-         )}
-
-         <div className="table-scroll">
-
-           <table>
-
-             <thead>
-
-               <tr>
-
-                 <th>TRANSACTION</th><th>CUSTOMER</th><th>DESCRIPTION</th>
-
-                 <th>DATE</th><th>AMOUNT</th><th>STATUS</th>
-
-               </tr>
-
-             </thead>
-
-             <tbody>
-
-               {rows.map((t) => (
-
-                 <tr key={t.id}>
-
-                   <td className="id">{t.id}</td>
-
-                   <td>{t.customer}</td>
-
-                   <td>{t.description}</td>
-
-                   <td>{t.date}</td>
-
-                   <td className="money">₹{t.amount.toLocaleString('en-IN')}</td>
-
-                   <td><span className={`badge ${t.status.toLowerCase()}`}>{t.status}</span></td>
-
-                 </tr>
-
-               ))}
-
-               {!rows.length && (
-
-                 <tr><td colSpan={6} className="empty">No transactions match your search.</td></tr>
-
-               )}
-
-             </tbody>
-
-           </table>
-
-         </div>
-
-         {!compact && (
-
-           <div className="pagination">
-
-             <span>Page {page} of {pages}</span>
-
-             <div>
-
-               <button disabled={page === 1} onClick={() => setPage(page - 1)}>Previous</button>
-
-               <button disabled={page === pages} onClick={() => setPage(page + 1)}>Next</button>
-
-             </div>
-
-           </div>
-
-         )}
-
-       </section>
-
-     )
-
+  const [query, setQuery] = useState('')
+  const [status, setStatus] = useState('All statuses')
+  const [page, setPage] = useState(1)
+  const [transactions, setTransactions] = useState<BillingTransaction[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadTransactions() {
+      try {
+        setLoading(true)
+        setError('')
+
+        const { apiRequest } = await import('./services/api')
+        const result = await apiRequest<BillingTransaction[]>('/billing/transactions?limit=100')
+
+        if (!cancelled) {
+          setTransactions(Array.isArray(result) ? result : [])
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Unable to load transactions.')
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    loadTransactions()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const filtered = useMemo(() => {
+    return transactions.filter((t) => {
+      const text = `${t.transactionId} ${t.description || ''}`.toLowerCase()
+      const matchesQuery = text.includes(query.toLowerCase())
+      const matchesStatus =
+        status === 'All statuses' ||
+        t.status === status.toLowerCase()
+
+      return matchesQuery && matchesStatus
+    })
+  }, [transactions, query, status])
+
+  const size = compact ? 5 : 6
+  const pages = Math.max(1, Math.ceil(filtered.length / size))
+  const rows = compact
+    ? filtered.slice(0, size)
+    : filtered.slice((page - 1) * size, page * size)
+
+  const formatAmount = (amountMinor: number, currency: string) =>
+    new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: currency || 'INR',
+    }).format(amountMinor / 100)
+
+  const formatDate = (value: string) =>
+    value
+      ? new Date(value).toLocaleDateString('en-IN', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+        })
+      : '—'
+
+  const statusLabel = (value: string) => {
+    if (value === 'success') return 'Successful'
+    if (value === 'reversed') return 'Reversed'
+    if (value === 'failed') return 'Failed'
+    return 'Pending'
+  }
+
+  return (
+    <section className="panel table-panel">
+      <div className="panel-head">
+        <div>
+          <h3>{compact ? 'Recent transactions' : 'All transactions'}</h3>
+          <p>
+            {compact
+              ? 'Your latest billing activity'
+              : 'Review and manage your billing events'}
+          </p>
+        </div>
+        {!compact && <small>{filtered.length} results</small>}
+      </div>
+
+      {!compact && (
+        <div className="table-tools">
+          <input
+            placeholder="⌕ Search by ID or description..."
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value)
+              setPage(1)
+            }}
+          />
+          <select
+            value={status}
+            onChange={(e) => {
+              setStatus(e.target.value)
+              setPage(1)
+            }}
+          >
+            <option>All statuses</option>
+            <option value="success">Successful</option>
+            <option value="pending">Pending</option>
+            <option value="failed">Failed</option>
+            <option value="reversed">Reversed</option>
+          </select>
+        </div>
+      )}
+
+      <div className="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>TRANSACTION</th>
+              <th>CUSTOMER</th>
+              <th>DESCRIPTION</th>
+              <th>DATE</th>
+              <th>AMOUNT</th>
+              <th>STATUS</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr>
+                <td colSpan={6} className="empty">Loading transactions...</td>
+              </tr>
+            ) : error ? (
+              <tr>
+                <td colSpan={6} className="empty">{error}</td>
+              </tr>
+            ) : rows.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="empty">
+                  No transactions found.
+                </td>
+              </tr>
+            ) : (
+              rows.map((t) => {
+                const label = statusLabel(t.status)
+                return (
+                  <tr key={t.transactionId}>
+                    <td className="id">{t.transactionId}</td>
+                    <td>—</td>
+                    <td>{t.description || 'Billing transaction'}</td>
+                    <td>{formatDate(t.createdAt)}</td>
+                    <td className="money">
+                      {formatAmount(t.amountMinor, t.currency)}
+                    </td>
+                    <td>
+                      <span className={`badge ${label.toLowerCase()}`}>
+                        {label}
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {!compact && !loading && !error && (
+        <div className="pagination">
+          <span>Page {page} of {pages}</span>
+          <div>
+            <button
+              disabled={page === 1}
+              onClick={() => setPage(page - 1)}
+            >
+              Previous
+            </button>
+            <button
+              disabled={page === pages}
+              onClick={() => setPage(page + 1)}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
+
+type FinancialSummary = {
+  accounts: {
+    revenue: {
+      balanceMinor: number
+    }
+  }
+  transactions: {
+    totalCount: number
+    byStatus: Record<string, { count: number; totalAmountMinor: number }>
+  }
 }
 
 function Dashboard() {
   const profile = getDemoProfile()
 
-     const hour = new Date().getHours()
+  const [financial, setFinancial] = useState<FinancialSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
-     const greeting =
+  useEffect(() => {
+    let cancelled = false
 
-       hour < 12
+    async function loadFinancialData() {
+      try {
+        const { apiRequest } = await import('./services/api')
+        const result = await apiRequest<FinancialSummary>(
+          '/analytics/financial'
+        )
 
-         ? 'Good morning'
+        if (!cancelled) {
+          setFinancial(result)
+          setError('')
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error ? err.message : 'Unable to load financial data.'
+          )
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
 
-         : hour < 17
+    loadFinancialData()
 
-           ? 'Good afternoon'
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
-           : 'Good evening'
+  const hour = new Date().getHours()
 
-     const today = new Date().toLocaleDateString('en-IN', {
+  const greeting =
+    hour < 12
+      ? 'Good morning'
+      : hour < 17
+        ? 'Good afternoon'
+        : 'Good evening'
 
-       weekday: 'long',
+  const today = new Date().toLocaleDateString('en-IN', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  })
 
-       month: 'long',
+  const revenueMinor = financial?.accounts.revenue.balanceMinor ?? 0
+  const totalTransactions = financial?.transactions.totalCount ?? 0
+  const successfulTransactions =
+    financial?.transactions.byStatus.success?.count ?? 0
 
-       day: 'numeric',
+  const successfulRate =
+    totalTransactions > 0
+      ? ((successfulTransactions / totalTransactions) * 100).toFixed(1)
+      : '0.0'
 
-       year: 'numeric',
+  const formattedRevenue = new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 2,
+  }).format(revenueMinor / 100)
 
-     })
+  return (
+    <div className="stack">
+      <Heading
+        eyebrow={today.toUpperCase()}
+        title={`${greeting}, ${profile.name} ✦`}
+        subtitle={`Here's what's happening with ${profile.organization} today.`}
+        action="Export report"
+      />
 
-     return (
+      <div className="stats">
+        <Stat
+          label="Total revenue"
+          value={loading ? 'Loading...' : formattedRevenue}
+          change="Live from backend"
+          comparison="current total"
+          icon="₹"
+        />
 
-       <div className="stack">
+        <Stat
+          label="Transactions"
+          value={loading ? 'Loading...' : totalTransactions.toLocaleString('en-IN')}
+          change="Live from backend"
+          comparison="current total"
+          icon="⇄"
+        />
 
-         <Heading
+        <Stat
+          label="Successful rate"
+          value={loading ? 'Loading...' : `${successfulRate}%`}
+          change="Live from backend"
+          comparison="current rate"
+          icon="✓"
+        />
 
-eyebrow={today.toUpperCase()}
+        <Stat
+          label="API usage"
+          value="Demo data"
+          change="Not connected"
+          comparison="demo placeholder"
+          icon="⌁"
+        />
+      </div>
 
+      {error && (
+        <div className="disclaimer">
+          Unable to load live financial data: {error}
+        </div>
+      )}
 
-title={`${greeting}, ${profile.name} ✦`}
+      <div className="dash-grid">
+        <Revenue />
+        <Usage />
+      </div>
 
-subtitle={`Here's what's happening with ${profile.organization} today.`}
+      <Transactions compact />
 
-action="Export report"
-
-         />
-
-         <div className="stats">
-
-           <Stat label="Total revenue" value="₹8,42,590" change="12.8%" icon="₹" />
-
-           <Stat label="Transactions" value="1,284" change="8.2%" icon="⇄" />
-
-           <Stat label="Successful rate" value="98.6%" change="2.4%" icon="✓" />
-
-           <Stat label="API usage" value="2.4M" change="18.6%" icon="⌁" />
-
-         </div>
-
-         <div className="dash-grid"><Revenue /><Usage /></div>
-
-         <Transactions compact />
-
-         <div className="disclaimer">
-
-           Illustrative mock data only. Live billing, tenant isolation and authentication
-
-           will be provided by the backend integration.
-
-         </div>
-
-       </div>
-
-     )
-
+      <div className="disclaimer">
+        Revenue, transaction count and successful rate are connected to live
+        backend data. Revenue chart and API usage are still illustrative.
+      </div>
+    </div>
+  )
 }
 
 function Ledger() {
@@ -1428,13 +1419,9 @@ subtitle="View your organization workspace details."
 }
 
 function Protected() {
-
-     return sessionStorage.getItem('ledgerguard-demo-session') === 'true'
-
-       ? <Shell />
-
-       : <Navigate to="/login" replace />
-
+  return sessionStorage.getItem('ledgerguard-auth-token')
+    ? <Shell />
+    : <Navigate to="/login" replace />
 }
 
 export default function App() {
