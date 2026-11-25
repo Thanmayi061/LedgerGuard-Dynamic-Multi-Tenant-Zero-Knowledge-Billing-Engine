@@ -69,6 +69,55 @@ export async function checkDatabaseHealth() {
   }
 }
 
+/**
+ * Health check helper for tenant databases (e.g. Acme and Zenith).
+ */
+export async function checkTenantDatabasesHealth(orgIds = ["org_acme_001", "org_zenith_002"]) {
+  const uri = process.env.MONGODB_URI;
+  if (!uri || uri.includes("<username>") || uri.includes("placeholder")) {
+    return {
+      status: "unconfigured",
+      tenants: orgIds.map(orgId => ({ organizationId: orgId, status: "unconfigured" })),
+      message: "MONGODB_URI is not configured with live credentials."
+    };
+  }
+
+  const results = [];
+  for (const orgId of orgIds) {
+    try {
+      const conn = await getTenantConnection(orgId);
+      const readyState = conn.readyState;
+      let pingOk = false;
+      let latencyMs = null;
+      if (readyState === 1 && conn.db) {
+        const start = Date.now();
+        await conn.db.command({ ping: 1 });
+        latencyMs = Date.now() - start;
+        pingOk = true;
+      }
+      results.push({
+        organizationId: orgId,
+        databaseName: conn.name,
+        status: pingOk ? "connected" : "unresponsive",
+        readyState,
+        latencyMs
+      });
+    } catch (err) {
+      results.push({
+        organizationId: orgId,
+        status: "error",
+        message: err.message
+      });
+    }
+  }
+
+  const allConnected = results.every(r => r.status === "connected");
+  return {
+    status: allConnected ? "connected" : "degraded",
+    tenants: results
+  };
+}
+
 export {
   getPlatformConnection,
   getTenantConnection,

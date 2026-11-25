@@ -12,7 +12,8 @@ import {
   getUsageRecordModel,
   getPricingPlanModel,
   assertMatchingRequestHash,
-  checkDatabaseHealth
+  checkDatabaseHealth,
+  checkTenantDatabasesHealth
 } from "../../src/config/db.js";
 
 test("Database Bridge: exports all required functions, models, and helpers", () => {
@@ -66,4 +67,13 @@ test("Database Bridge: checkDatabaseHealth reports unconfigured when placeholder
   assert.ok(health);
   assert.equal(health.status, "unconfigured");
   assert.equal(health.platformDb, "platform_db");
+});
+
+test("Database Bridge: checkTenantDatabasesHealth reports unconfigured when placeholder URI is used", async () => {
+  const health = await checkTenantDatabasesHealth(["org_acme_001", "org_zenith_002"]);
+  assert.ok(health);
+  assert.equal(health.status, "unconfigured");
+  assert.equal(health.tenants.length, 2);
+  assert.equal(health.tenants[0].organizationId, "org_acme_001");
+  assert.equal(health.tenants[1].organizationId, "org_zenith_002");
 });

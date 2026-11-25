@@ -158,7 +158,7 @@ export function getRedisClient() {
     }
   }
 
-  if (env.REDIS_URL && !env.isTest) {
+  if (env.REDIS_URL && (!env.isTest || process.env.ENABLE_LIVE_REDIS === "true")) {
     try {
       redisClient = new Redis(env.REDIS_URL, {
         maxRetriesPerRequest: 1,

@@ -501,3 +501,52 @@ Command: node --test
    - `Authorization: Bearer <RS256_JWT_TOKEN>`
    - `x-tenant-id: <organizationId>` (e.g. `org_acme_001` or `org_zenith_002`)
 3. Login via `POST /api/v1/auth/login` with `{ organizationId, email, password }` returns the token and user profile.
+
+---
+
+## 10. Live Integration Readiness & Testing Infrastructure (25 November 2026)
+
+### 10.1 Live Integration Test Harness (`npm run test:live`)
+Created `backend/scripts/verify-live-integration.js`, a standalone live test runner that evaluates connectivity and contract fulfillment across the stack:
+- **Phase 1: Environment & Health Probing:** Queries `checkDatabaseHealth()` and `checkRedisHealth()` to identify network availability or local fallback state.
+- **Phase 2: Database Contract & Model Verification:** Confirms platform models and tenant model getters (`User`, `Tx`, `Ledger`, `Usage`, `Pricing`) load properly without schema mutation.
+- **Phase 3: Redis Distributed Locking:** Tests mutex acquisition, TTL preservation, and atomic Lua release (`withLock`).
+- **Phase 4: Authentication & Tenant Routing:** Tests bcrypt password hashing/comparison and RS256 JWT claim verification.
+- **Phase 5: Accounting & Idempotency Invariants:** Validates balanced ledger invariant ($\sum \text{Debits} == \sum \text{Credits}$), SHA-256 canonical payload hash comparison (HTTP 409 on key reuse with modified payload), and scaled integer usage arithmetic ($275/100 \times 10 = 28$ minor units).
+- **Phase 6: Multi-Tenant Database Health Probe:** Evaluates `checkTenantDatabasesHealth(["org_acme_001", "org_zenith_002"])` for ping latency and readyState across both tenant databases.
+
+### 10.2 Architectural Refinements
+1. **Multi-Tenant Health Probing:** Added `checkTenantDatabasesHealth()` in [backend/src/config/db.js](file:///Users/maithlisingh_t/Desktop/LedgerGuard/backend/src/config/db.js) to programmatically ping and inspect both `tenant_acme_db` and `tenant_zenith_db`.
+2. **Flexible Live Redis Configuration:** Refined `getRedisClient()` in [backend/src/config/redis.js](file:///Users/maithlisingh_t/Desktop/LedgerGuard/backend/src/config/redis.js) so live Redis instances can be targeted during integration testing via `ENABLE_LIVE_REDIS="true"` while maintaining strict production safety.
+3. **E2E Integration Test Expansion:** Expanded [backend/tests/integration/databaseE2E.test.js](file:///Users/maithlisingh_t/Desktop/LedgerGuard/backend/tests/integration/databaseE2E.test.js) to 8 comprehensive tests covering import verification, Atlas readiness, tenant health, authentication, accounting invariants, cross-tenant isolation, and transaction rollback.
+
+### 10.3 Test Execution Summary
+
+```text
+=== BACKEND TEST SUITE (backend/) ===
+Command: node --test tests/**/*.test.js
+✔ Passed:  57 tests
+✖ Failed:  0 tests
+﹣ Skipped: 1 test (Live Atlas multi-tenant connection test skipped safely when MONGODB_URI is placeholder)
+⏱ Duration: ~1,120 ms
+
+=== DATABASE TEST SUITE (database/) ===
+Command: node --test
+✔ Passed:  1 test (idempotency rejects reuse with different request hash)
+✖ Failed:  0 tests
+﹣ Skipped: 5 tests (Live Atlas multi-document transaction & isolation tests skipped pending cluster URI)
+⏱ Duration: ~92 ms
+```
+
+### 10.4 Live Verification Requirements & Environment Blockers
+- **MongoDB Atlas Status:** Currently **UNCONFIGURED** in the local workspace. `MONGODB_URI` contains the template placeholder `<username>:<password>@<cluster-url>`.
+- **Redis Status:** Live Redis daemon is currently **OFFLINE** on port 6379; running safely in **IN-MEMORY-FALLBACK** mode.
+- **To Run With Live Services:**
+  ```bash
+  # In terminal:
+  export MONGODB_URI="mongodb+srv://<user>:<password>@<test-cluster>/?retryWrites=true&w=majority"
+  export LEDGERGUARD_TEST_PLATFORM_DB_NAME="ledgerguard_test_platform"
+  export REDIS_URL="redis://127.0.0.1:6379"
+  export ENABLE_LIVE_REDIS="true"
+  cd backend && npm run test:live
+  ```
