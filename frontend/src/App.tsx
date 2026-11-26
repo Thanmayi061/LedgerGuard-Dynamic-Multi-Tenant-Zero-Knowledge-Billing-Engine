@@ -808,29 +808,80 @@ function AnalyticsRevenue() {
 
 }
 
+
+interface UsageMetric {
+  metricType: 'api_requests' | 'compute_units' | 'storage'
+  eventCount: number
+  totalCostMinor: number
+  currency: string
+  unit: string
+}
+
+interface UsageSummary {
+  organizationId: string
+  totalEvents: number
+  totalCostMinor: number
+  byMetric: UsageMetric[]
+}
+
+function useUsageSummary() {
+  const [usage, setUsage] = useState<UsageSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let active = true
+
+    import('./services/api')
+      .then(({ apiRequest }) =>
+        apiRequest<UsageSummary>('/analytics/usage')
+      )
+      .then((result) => {
+        if (active) setUsage(result)
+      })
+      .catch((err: Error) => {
+        if (active) setError(err.message)
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [])
+
+  return { usage, loading, error }
+}
+
+function formatCount(value: number) {
+  return new Intl.NumberFormat('en-IN').format(value)
+}
+
+function metricLabel(metricType: string) {
+  const labels: Record<string, string> = {
+    api_requests: 'API requests',
+    compute_units: 'Compute units',
+    storage: 'Storage',
+  }
+
+  return labels[metricType] || metricType
+}
+
+
 function UsageAnalytics() {
+  const { usage, loading, error } = useUsageSummary()
+
+  const metrics = usage?.byMetric ?? []
+
   const data = {
-    labels: ['Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov'],
+    labels: metrics.map((item) => metricLabel(item.metricType)),
     datasets: [
       {
-        label: 'API requests (thousands)',
-        data: [120, 145, 138, 175, 190, 215],
+        label: 'Usage events',
+        data: metrics.map((item) => item.eventCount),
         borderColor: '#7567e8',
         backgroundColor: '#7567e8',
-        tension: 0.4,
-      },
-      {
-        label: 'Compute units (thousands)',
-        data: [80, 95, 110, 105, 130, 145],
-        borderColor: '#16a085',
-        backgroundColor: '#16a085',
-        tension: 0.4,
-      },
-      {
-        label: 'Storage operations (thousands)',
-        data: [45, 55, 52, 68, 75, 90],
-        borderColor: '#e5a23d',
-        backgroundColor: '#e5a23d',
         tension: 0.4,
       },
     ],
@@ -840,14 +891,23 @@ function UsageAnalytics() {
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
-      legend: { position: 'bottom' as const },
+      legend: {
+        position: 'bottom' as const,
+      },
     },
     scales: {
       y: {
         beginAtZero: true,
-        title: { display: true, text: 'Usage (thousands)' },
+        title: {
+          display: true,
+          text: 'Usage events',
+        },
       },
-      x: { grid: { display: false } },
+      x: {
+        grid: {
+          display: false,
+        },
+      },
     },
   }
 
@@ -856,53 +916,111 @@ function UsageAnalytics() {
       <div className="panel-head">
         <div>
           <h3>Resource consumption</h3>
-          <p>API and infrastructure usage · last 6 months</p>
+          <p>Actual usage records by metric</p>
         </div>
-        <span className="demo-chart-note">Illustrative demo data</span>
+        <span className="legend">● Live data</span>
       </div>
-      <div style={{ height: '300px', width: '100%' }}>
-        <Line data={data} options={options} />
-      </div>
+
+      {loading ? (
+        <p>Loading usage analytics...</p>
+      ) : error ? (
+        <p role="alert">{error}</p>
+      ) : metrics.length === 0 ? (
+        <div className="info">
+          <p>No usage records found for this organization yet.</p>
+          <p>Total usage events: 0</p>
+        </div>
+      ) : (
+        <>
+          <div style={{ height: '300px', width: '100%' }}>
+            <Line data={data} options={options} />
+          </div>
+
+          <p>
+            Total usage events:{' '}
+            {formatCount(usage?.totalEvents ?? 0)}
+          </p>
+        </>
+      )}
     </section>
   )
 }
 
 
 function Usage() {
+  const { usage, loading, error } = useUsageSummary()
 
-     return (
+  const metrics = usage?.byMetric ?? []
 
-       <section className="panel">
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <div>
+          <h3>Usage this month</h3>
+          <p>Recorded resource consumption</p>
+        </div>
+        <b className="usage-icon">⌁</b>
+      </div>
 
-         <div className="panel-head">
+      {loading ? (
+        <p>Loading usage...</p>
+      ) : error ? (
+        <p role="alert">{error}</p>
+      ) : (
+        <>
+          <div className="usage-total">
+            {formatCount(usage?.totalEvents ?? 0)}
+            <small> usage events</small>
+          </div>
 
-           <div><h3>Usage this month</h3><p>Resource consumption</p></div>
+          <div className="usage-labels">
+            <span>Actual recorded events</span>
+            <b>No estimated limit</b>
+          </div>
 
-           <b className="usage-icon">⌁</b>
+          <div className="usage-list">
+            {(['api_requests', 'compute_units', 'storage'] as const).map(
+              (metricType) => {
+                const metric = metrics.find(
+                  (item) => item.metricType === metricType
+                )
 
-         </div>
-
-         <div className="usage-total">2.4M <small>API calls</small></div>
-
-         <div className="progress"><i /></div>
-
-         <div className="usage-labels"><span>2.4M used</span><b>3.0M limit</b></div>
-
-         <div className="usage-list">
-
-           <p>🟣 API requests <b>1.6M</b></p>
-
-           <p>🔵 Compute units <b>580K</b></p>
-
-           <p>🟢 Storage ops <b>220K</b></p>
-
-         </div>
-
-       </section>
-
-     )
-
+                return (
+                  <p key={metricType}>
+                    {metricLabel(metricType)}
+                    <b>{formatCount(metric?.eventCount ?? 0)}</b>
+                  </p>
+                )
+              }
+            )}
+          </div>
+        </>
+      )}
+    </section>
+  )
 }
+
+
+function UsageTotalStat() {
+  const { usage, loading, error } = useUsageSummary()
+
+  return (
+    <Stat
+      label="Total usage events"
+      value={
+        loading
+          ? '...'
+          : error
+            ? 'Unavailable'
+            : formatCount(usage?.totalEvents ?? 0)
+      }
+      change={loading ? 'Loading' : error ? 'Error' : 'Live data'}
+      icon="⌁"
+    />
+  )
+}
+
+
 
 interface BillingTransaction {
   transactionId: string
@@ -1224,13 +1342,7 @@ function Dashboard() {
           icon="✓"
         />
 
-        <Stat
-          label="API usage"
-          value="Demo data"
-          change="Not connected"
-          comparison="demo placeholder"
-          icon="⌁"
-        />
+        <UsageTotalStat />
       </div>
 
       {error && (
@@ -1348,7 +1460,7 @@ subtitle="Understand billing performance and resource consumption."
 
            <Stat label="Successful rate" value="98.6%" change="2.4%" icon="✓" />
 
-           <Stat label="Total API calls" value="2.4M" change="18.6%" icon="⌁" />
+           <UsageTotalStat />
 
          </div>
       <AnalyticsRevenue />
